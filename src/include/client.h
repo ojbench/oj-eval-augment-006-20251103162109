@@ -3,12 +3,21 @@
 
 #include <iostream>
 #include <utility>
+#include <vector>
+#include <queue>
+#include <set>
+#include <algorithm>
 
 extern int rows;         // The count of rows of the game map.
 extern int columns;      // The count of columns of the game map.
 extern int total_mines;  // The count of mines of the game map.
 
 // You MUST NOT use any other external variables except for rows, columns and total_mines.
+
+// Global variables for client
+char map[35][35];           // Current state of the map
+bool is_mine_certain[35][35];   // Cells we know are mines
+bool is_safe_certain[35][35];   // Cells we know are safe
 
 /**
  * @brief The definition of function Execute(int, int, bool)
@@ -34,7 +43,15 @@ void Execute(int r, int c, int type);
  * will read the scale of the game map and the first step taken by the server (see README).
  */
 void InitGame() {
-  // TODO (student): Initialize all your global variables!
+  // Initialize all global variables
+  for (int i = 0; i < rows; i++) {
+    for (int j = 0; j < columns; j++) {
+      map[i][j] = '?';
+      is_mine_certain[i][j] = false;
+      is_safe_certain[i][j] = false;
+    }
+  }
+
   int first_row, first_column;
   std::cin >> first_row >> first_column;
   Execute(first_row, first_column, 0);
@@ -51,7 +68,22 @@ void InitGame() {
  *     01?
  */
 void ReadMap() {
-  // TODO (student): Implement me!
+  for (int i = 0; i < rows; i++) {
+    std::string line;
+    std::cin >> line;
+    for (int j = 0; j < columns; j++) {
+      map[i][j] = line[j];
+    }
+  }
+
+  // Debug: print the map to stderr
+  // std::cerr << "Current map:" << std::endl;
+  // for (int i = 0; i < rows; i++) {
+  //   for (int j = 0; j < columns; j++) {
+  //     std::cerr << map[i][j];
+  //   }
+  //   std::cerr << std::endl;
+  // }
 }
 
 /**
@@ -61,10 +93,156 @@ void ReadMap() {
  * mind and make your decision here! Caution: you can only execute once in this function.
  */
 void Decide() {
-  // TODO (student): Implement me!
-  // while (true) {
-  //   Execute(0, 0);
-  // }
+  // std::cerr << "Decide() called" << std::endl;
+
+  // Strategy:
+  // 1. Try to find cells that are definitely safe or definitely mines
+  // 2. Mark certain mines
+  // 3. Visit certain safe cells
+  // 4. Use auto-explore when possible
+  // 5. If no certain moves, make a guess
+
+  // First, analyze the map to find certain safe/mine cells
+  bool found_certain = false;
+
+  // Check each revealed number cell
+  for (int i = 0; i < rows; i++) {
+    for (int j = 0; j < columns; j++) {
+      if (map[i][j] >= '0' && map[i][j] <= '8') {
+        int num = map[i][j] - '0';
+
+        // Count adjacent unknown and marked cells
+        int unknown_count = 0;
+        int marked_count = 0;
+        std::vector<std::pair<int, int>> unknown_cells;
+
+        for (int di = -1; di <= 1; di++) {
+          for (int dj = -1; dj <= 1; dj++) {
+            if (di == 0 && dj == 0) continue;
+            int ni = i + di;
+            int nj = j + dj;
+            if (ni >= 0 && ni < rows && nj >= 0 && nj < columns) {
+              if (map[ni][nj] == '?') {
+                unknown_count++;
+                unknown_cells.push_back({ni, nj});
+              } else if (map[ni][nj] == '@') {
+                marked_count++;
+              }
+            }
+          }
+        }
+
+        // If all remaining unknown cells must be mines
+        if (unknown_count > 0 && marked_count + unknown_count == num) {
+          // std::cerr << "Found certain mines at (" << i << ", " << j << ") with num=" << num << std::endl;
+          for (auto& cell : unknown_cells) {
+            if (!is_mine_certain[cell.first][cell.second]) {
+              is_mine_certain[cell.first][cell.second] = true;
+              // std::cerr << "Marking mine at (" << cell.first << ", " << cell.second << ")" << std::endl;
+              Execute(cell.first, cell.second, 1);  // Mark mine
+              return;
+            }
+          }
+        }
+
+        // If all mines are already marked, remaining cells are safe
+        if (unknown_count > 0 && marked_count == num) {
+          // std::cerr << "Found certain safe cells at (" << i << ", " << j << ") with num=" << num << std::endl;
+          for (auto& cell : unknown_cells) {
+            if (!is_safe_certain[cell.first][cell.second]) {
+              is_safe_certain[cell.first][cell.second] = true;
+              // std::cerr << "Visiting safe cell at (" << cell.first << ", " << cell.second << ")" << std::endl;
+              Execute(cell.first, cell.second, 0);  // Visit safe cell
+              return;
+            }
+          }
+        }
+
+        // Try auto-explore if all adjacent mines are marked
+        // Only auto-explore if there are unvisited, unmarked cells around
+        if (marked_count == num) {
+          // Check if there are any unvisited, unmarked cells around
+          bool has_unvisited_unmarked = false;
+          for (int di = -1; di <= 1; di++) {
+            for (int dj = -1; dj <= 1; dj++) {
+              if (di == 0 && dj == 0) continue;
+              int ni = i + di;
+              int nj = j + dj;
+              if (ni >= 0 && ni < rows && nj >= 0 && nj < columns) {
+                if (map[ni][nj] == '?') {
+                  has_unvisited_unmarked = true;
+                  break;
+                }
+              }
+            }
+            if (has_unvisited_unmarked) break;
+          }
+
+          if (has_unvisited_unmarked) {
+            // std::cerr << "Auto-exploring at (" << i << ", " << j << ")" << std::endl;
+            Execute(i, j, 2);  // Auto-explore
+            return;
+          }
+        }
+      }
+    }
+  }
+
+  // If no certain moves found, make a guess
+  // Prefer cells with lower risk (adjacent to lower numbers)
+  int best_r = -1, best_c = -1;
+  int best_score = -1000000;
+
+  // std::cerr << "Looking for guesses..." << std::endl;
+
+  for (int i = 0; i < rows; i++) {
+    for (int j = 0; j < columns; j++) {
+      if (map[i][j] == '?') {
+        // std::cerr << "Found ? at (" << i << ", " << j << ")" << std::endl;
+        // Calculate a heuristic score for this cell
+        int score = 0;
+        int revealed_neighbors = 0;
+
+        for (int di = -1; di <= 1; di++) {
+          for (int dj = -1; dj <= 1; dj++) {
+            if (di == 0 && dj == 0) continue;
+            int ni = i + di;
+            int nj = j + dj;
+            if (ni >= 0 && ni < rows && nj >= 0 && nj < columns) {
+              if (map[ni][nj] >= '0' && map[ni][nj] <= '8') {
+                revealed_neighbors++;
+                // Prefer cells adjacent to 0s (safest)
+                score += (8 - (map[ni][nj] - '0')) * 10;
+              }
+            }
+          }
+        }
+
+        // Prefer cells with more revealed neighbors
+        score += revealed_neighbors * 5;
+
+        // If no revealed neighbors, just pick any cell
+        if (revealed_neighbors == 0) {
+          score = 1;
+        }
+
+        if (score > best_score) {
+          best_score = score;
+          best_r = i;
+          best_c = j;
+        }
+      }
+    }
+  }
+
+  if (best_r != -1) {
+    // std::cerr << "Making guess at (" << best_r << ", " << best_c << ") with score " << best_score << std::endl;
+    Execute(best_r, best_c, 0);  // Visit the best guess
+    return;
+  }
+
+  // std::cerr << "No moves found! Game should be over." << std::endl;
+  // If we reach here, the game should be over (no more moves)
 }
 
 #endif
