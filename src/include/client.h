@@ -15,7 +15,7 @@ extern int total_mines;  // The count of mines of the game map.
 // You MUST NOT use any other external variables except for rows, columns and total_mines.
 
 // Global variables for client
-char map[35][35];           // Current state of the map
+char client_map[35][35];           // Current state of the map
 bool is_mine_certain[35][35];   // Cells we know are mines
 bool is_safe_certain[35][35];   // Cells we know are safe
 
@@ -46,7 +46,7 @@ void InitGame() {
   // Initialize all global variables
   for (int i = 0; i < rows; i++) {
     for (int j = 0; j < columns; j++) {
-      map[i][j] = '?';
+      client_map[i][j] = '?';
       is_mine_certain[i][j] = false;
       is_safe_certain[i][j] = false;
     }
@@ -72,7 +72,7 @@ void ReadMap() {
     std::string line;
     std::cin >> line;
     for (int j = 0; j < columns; j++) {
-      map[i][j] = line[j];
+      client_map[i][j] = line[j];
     }
   }
 
@@ -80,7 +80,7 @@ void ReadMap() {
   // std::cerr << "Current map:" << std::endl;
   // for (int i = 0; i < rows; i++) {
   //   for (int j = 0; j < columns; j++) {
-  //     std::cerr << map[i][j];
+  //     std::cerr << client_map[i][j];
   //   }
   //   std::cerr << std::endl;
   // }
@@ -108,8 +108,8 @@ void Decide() {
   // Check each revealed number cell
   for (int i = 0; i < rows; i++) {
     for (int j = 0; j < columns; j++) {
-      if (map[i][j] >= '0' && map[i][j] <= '8') {
-        int num = map[i][j] - '0';
+      if (client_map[i][j] >= '0' && client_map[i][j] <= '8') {
+        int num = client_map[i][j] - '0';
 
         // Count adjacent unknown and marked cells
         int unknown_count = 0;
@@ -122,10 +122,10 @@ void Decide() {
             int ni = i + di;
             int nj = j + dj;
             if (ni >= 0 && ni < rows && nj >= 0 && nj < columns) {
-              if (map[ni][nj] == '?') {
+              if (client_map[ni][nj] == '?') {
                 unknown_count++;
                 unknown_cells.push_back({ni, nj});
-              } else if (map[ni][nj] == '@') {
+              } else if (client_map[ni][nj] == '@') {
                 marked_count++;
               }
             }
@@ -169,7 +169,7 @@ void Decide() {
               int ni = i + di;
               int nj = j + dj;
               if (ni >= 0 && ni < rows && nj >= 0 && nj < columns) {
-                if (map[ni][nj] == '?') {
+                if (client_map[ni][nj] == '?') {
                   has_unvisited_unmarked = true;
                   break;
                 }
@@ -197,7 +197,7 @@ void Decide() {
 
   for (int i = 0; i < rows; i++) {
     for (int j = 0; j < columns; j++) {
-      if (map[i][j] == '?') {
+      if (client_map[i][j] == '?') {
         // std::cerr << "Found ? at (" << i << ", " << j << ")" << std::endl;
         // Calculate a heuristic score for this cell
         int score = 0;
@@ -209,10 +209,10 @@ void Decide() {
             int ni = i + di;
             int nj = j + dj;
             if (ni >= 0 && ni < rows && nj >= 0 && nj < columns) {
-              if (map[ni][nj] >= '0' && map[ni][nj] <= '8') {
+              if (client_map[ni][nj] >= '0' && client_map[ni][nj] <= '8') {
                 revealed_neighbors++;
                 // Prefer cells adjacent to 0s (safest)
-                score += (8 - (map[ni][nj] - '0')) * 10;
+                score += (8 - (client_map[ni][nj] - '0')) * 10;
               }
             }
           }
