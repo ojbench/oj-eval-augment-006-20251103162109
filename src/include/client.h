@@ -198,6 +198,7 @@ void Decide() {
         }
 
         int remaining1 = num1 - marked1;
+        if (unknown1.empty()) continue;
 
         // Check other revealed cells nearby
         for (int i2 = 0; i2 < rows; i2++) {
@@ -218,8 +219,9 @@ void Decide() {
               }
 
               int remaining2 = num2 - marked2;
+              if (unknown2.empty()) continue;
 
-              // If unknown1 is a subset of unknown2
+              // Pattern 1: If unknown1 is a subset of unknown2
               bool is_subset = true;
               for (auto& u : unknown1) {
                 if (unknown2.find(u) == unknown2.end()) {
@@ -257,6 +259,74 @@ void Decide() {
                       is_safe_certain[cell.first][cell.second] = true;
                       Execute(cell.first, cell.second, 0);
                       return;
+                    }
+                  }
+                }
+              }
+
+              // Pattern 2: Check for overlapping constraints
+              std::set<std::pair<int, int>> intersection;
+              std::set<std::pair<int, int>> only_in_1;
+              std::set<std::pair<int, int>> only_in_2;
+
+              for (auto& u : unknown1) {
+                if (unknown2.find(u) != unknown2.end()) {
+                  intersection.insert(u);
+                } else {
+                  only_in_1.insert(u);
+                }
+              }
+
+              for (auto& u : unknown2) {
+                if (unknown1.find(u) == unknown1.end()) {
+                  only_in_2.insert(u);
+                }
+              }
+
+              // If we have overlapping cells, try to deduce
+              if (!intersection.empty() && !only_in_1.empty() && !only_in_2.empty()) {
+                // If remaining1 - remaining2 == only_in_1.size(), all in only_in_1 are mines
+                if (remaining1 - remaining2 == (int)only_in_1.size() && remaining1 > remaining2) {
+                  for (auto& cell : only_in_1) {
+                    if (!is_mine_certain[cell.first][cell.second]) {
+                      is_mine_certain[cell.first][cell.second] = true;
+                      Execute(cell.first, cell.second, 1);
+                      return;
+                    }
+                  }
+                }
+
+                // If remaining2 - remaining1 == only_in_2.size(), all in only_in_2 are mines
+                if (remaining2 - remaining1 == (int)only_in_2.size() && remaining2 > remaining1) {
+                  for (auto& cell : only_in_2) {
+                    if (!is_mine_certain[cell.first][cell.second]) {
+                      is_mine_certain[cell.first][cell.second] = true;
+                      Execute(cell.first, cell.second, 1);
+                      return;
+                    }
+                  }
+                }
+
+                // If remaining1 == remaining2, then only_in_1 and only_in_2 have same number of mines
+                if (remaining1 == remaining2) {
+                  // If only_in_1 has 0 mines, all are safe
+                  if (only_in_1.size() == 0 && only_in_2.size() > 0) {
+                    // This means all mines are in intersection, so only_in_2 are safe
+                    for (auto& cell : only_in_2) {
+                      if (!is_safe_certain[cell.first][cell.second]) {
+                        is_safe_certain[cell.first][cell.second] = true;
+                        Execute(cell.first, cell.second, 0);
+                        return;
+                      }
+                    }
+                  }
+                  if (only_in_2.size() == 0 && only_in_1.size() > 0) {
+                    for (auto& cell : only_in_1) {
+                      if (!is_safe_certain[cell.first][cell.second]) {
+                        is_safe_certain[cell.first][cell.second] = true;
+                        Execute(cell.first, cell.second, 0);
+                        return;
+                      }
                     }
                   }
                 }
