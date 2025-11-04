@@ -339,45 +339,64 @@ void Decide() {
   }
 
   // If no certain moves found, make a guess
-  // Prefer cells with lower risk (adjacent to lower numbers)
+  // Use probability-based heuristic
   int best_r = -1, best_c = -1;
-  int best_score = -1000000;
-
-  // std::cerr << "Looking for guesses..." << std::endl;
+  double best_prob = 2.0;  // Start with impossible probability (> 1.0)
 
   for (int i = 0; i < rows; i++) {
     for (int j = 0; j < columns; j++) {
       if (client_map[i][j] == '?') {
-        // std::cerr << "Found ? at (" << i << ", " << j << ")" << std::endl;
-        // Calculate a heuristic score for this cell
-        int score = 0;
-        int revealed_neighbors = 0;
+        // Calculate probability of being a mine
+        double prob_sum = 0.0;
+        int constraint_count = 0;
 
-        for (int di = -1; di <= 1; di++) {
-          for (int dj = -1; dj <= 1; dj++) {
-            if (di == 0 && dj == 0) continue;
-            int ni = i + di;
-            int nj = j + dj;
-            if (ni >= 0 && ni < rows && nj >= 0 && nj < columns) {
-              if (client_map[ni][nj] >= '0' && client_map[ni][nj] <= '8') {
-                revealed_neighbors++;
-                // Prefer cells adjacent to 0s (safest)
-                score += (8 - (client_map[ni][nj] - '0')) * 10;
+        auto neighbors = get_neighbors(i, j);
+        for (auto& n : neighbors) {
+          if (client_map[n.first][n.second] >= '0' && client_map[n.first][n.second] <= '8') {
+            int num = client_map[n.first][n.second] - '0';
+
+            // Count unknown and marked neighbors of this revealed cell
+            int unknown_count = 0;
+            int marked_count = 0;
+            auto n_neighbors = get_neighbors(n.first, n.second);
+            for (auto& nn : n_neighbors) {
+              if (client_map[nn.first][nn.second] == '?') {
+                unknown_count++;
+              } else if (client_map[nn.first][nn.second] == '@') {
+                marked_count++;
               }
+            }
+
+            int remaining = num - marked_count;
+            if (unknown_count > 0) {
+              // Probability that this cell is a mine based on this constraint
+              double prob = (double)remaining / unknown_count;
+              prob_sum += prob;
+              constraint_count++;
             }
           }
         }
 
-        // Prefer cells with more revealed neighbors
-        score += revealed_neighbors * 5;
-
-        // If no revealed neighbors, just pick any cell
-        if (revealed_neighbors == 0) {
-          score = 1;
+        double avg_prob;
+        if (constraint_count > 0) {
+          avg_prob = prob_sum / constraint_count;
+        } else {
+          // No constraints, use global probability
+          int total_unknown = 0;
+          int total_marked = 0;
+          for (int ii = 0; ii < rows; ii++) {
+            for (int jj = 0; jj < columns; jj++) {
+              if (client_map[ii][jj] == '?') total_unknown++;
+              if (client_map[ii][jj] == '@') total_marked++;
+            }
+          }
+          int remaining_mines = total_mines - total_marked;
+          avg_prob = total_unknown > 0 ? (double)remaining_mines / total_unknown : 0.5;
         }
 
-        if (score > best_score) {
-          best_score = score;
+        // Prefer cells with lower mine probability
+        if (avg_prob < best_prob) {
+          best_prob = avg_prob;
           best_r = i;
           best_c = j;
         }
@@ -386,12 +405,10 @@ void Decide() {
   }
 
   if (best_r != -1) {
-    // std::cerr << "Making guess at (" << best_r << ", " << best_c << ") with score " << best_score << std::endl;
     Execute(best_r, best_c, 0);  // Visit the best guess
     return;
   }
 
-  // std::cerr << "No moves found! Game should be over." << std::endl;
   // If we reach here, the game should be over (no more moves)
 }
 
