@@ -92,20 +92,32 @@ void ReadMap() {
  * @details This function is designed to decide the next step when playing the client's (or player's) role. Open up your
  * mind and make your decision here! Caution: you can only execute once in this function.
  */
+// Helper function to get neighbors
+std::vector<std::pair<int, int>> get_neighbors(int r, int c) {
+  std::vector<std::pair<int, int>> neighbors;
+  for (int di = -1; di <= 1; di++) {
+    for (int dj = -1; dj <= 1; dj++) {
+      if (di == 0 && dj == 0) continue;
+      int ni = r + di;
+      int nj = c + dj;
+      if (ni >= 0 && ni < rows && nj >= 0 && nj < columns) {
+        neighbors.push_back({ni, nj});
+      }
+    }
+  }
+  return neighbors;
+}
+
 void Decide() {
-  // std::cerr << "Decide() called" << std::endl;
-
   // Strategy:
-  // 1. Try to find cells that are definitely safe or definitely mines
-  // 2. Mark certain mines
-  // 3. Visit certain safe cells
-  // 4. Use auto-explore when possible
-  // 5. If no certain moves, make a guess
+  // 1. Try to find cells that are definitely safe or definitely mines using basic rules
+  // 2. Try advanced constraint satisfaction
+  // 3. Mark certain mines
+  // 4. Visit certain safe cells
+  // 5. Use auto-explore when possible
+  // 6. If no certain moves, make a guess
 
-  // First, analyze the map to find certain safe/mine cells
-  bool found_certain = false;
-
-  // Check each revealed number cell
+  // First pass: basic rules
   for (int i = 0; i < rows; i++) {
     for (int j = 0; j < columns; j++) {
       if (client_map[i][j] >= '0' && client_map[i][j] <= '8') {
@@ -116,29 +128,21 @@ void Decide() {
         int marked_count = 0;
         std::vector<std::pair<int, int>> unknown_cells;
 
-        for (int di = -1; di <= 1; di++) {
-          for (int dj = -1; dj <= 1; dj++) {
-            if (di == 0 && dj == 0) continue;
-            int ni = i + di;
-            int nj = j + dj;
-            if (ni >= 0 && ni < rows && nj >= 0 && nj < columns) {
-              if (client_map[ni][nj] == '?') {
-                unknown_count++;
-                unknown_cells.push_back({ni, nj});
-              } else if (client_map[ni][nj] == '@') {
-                marked_count++;
-              }
-            }
+        auto neighbors = get_neighbors(i, j);
+        for (auto& n : neighbors) {
+          if (client_map[n.first][n.second] == '?') {
+            unknown_count++;
+            unknown_cells.push_back(n);
+          } else if (client_map[n.first][n.second] == '@') {
+            marked_count++;
           }
         }
 
         // If all remaining unknown cells must be mines
         if (unknown_count > 0 && marked_count + unknown_count == num) {
-          // std::cerr << "Found certain mines at (" << i << ", " << j << ") with num=" << num << std::endl;
           for (auto& cell : unknown_cells) {
             if (!is_mine_certain[cell.first][cell.second]) {
               is_mine_certain[cell.first][cell.second] = true;
-              // std::cerr << "Marking mine at (" << cell.first << ", " << cell.second << ")" << std::endl;
               Execute(cell.first, cell.second, 1);  // Mark mine
               return;
             }
@@ -147,11 +151,9 @@ void Decide() {
 
         // If all mines are already marked, remaining cells are safe
         if (unknown_count > 0 && marked_count == num) {
-          // std::cerr << "Found certain safe cells at (" << i << ", " << j << ") with num=" << num << std::endl;
           for (auto& cell : unknown_cells) {
             if (!is_safe_certain[cell.first][cell.second]) {
               is_safe_certain[cell.first][cell.second] = true;
-              // std::cerr << "Visiting safe cell at (" << cell.first << ", " << cell.second << ")" << std::endl;
               Execute(cell.first, cell.second, 0);  // Visit safe cell
               return;
             }
@@ -159,29 +161,107 @@ void Decide() {
         }
 
         // Try auto-explore if all adjacent mines are marked
-        // Only auto-explore if there are unvisited, unmarked cells around
         if (marked_count == num) {
-          // Check if there are any unvisited, unmarked cells around
           bool has_unvisited_unmarked = false;
-          for (int di = -1; di <= 1; di++) {
-            for (int dj = -1; dj <= 1; dj++) {
-              if (di == 0 && dj == 0) continue;
-              int ni = i + di;
-              int nj = j + dj;
-              if (ni >= 0 && ni < rows && nj >= 0 && nj < columns) {
-                if (client_map[ni][nj] == '?') {
-                  has_unvisited_unmarked = true;
-                  break;
-                }
-              }
+          for (auto& n : neighbors) {
+            if (client_map[n.first][n.second] == '?') {
+              has_unvisited_unmarked = true;
+              break;
             }
-            if (has_unvisited_unmarked) break;
           }
 
           if (has_unvisited_unmarked) {
-            // std::cerr << "Auto-exploring at (" << i << ", " << j << ")" << std::endl;
             Execute(i, j, 2);  // Auto-explore
             return;
+          }
+        }
+      }
+    }
+  }
+
+  // Second pass: advanced constraint satisfaction
+  // Try to find patterns where two cells share constraints
+  for (int i = 0; i < rows; i++) {
+    for (int j = 0; j < columns; j++) {
+      if (client_map[i][j] >= '0' && client_map[i][j] <= '8') {
+        int num1 = client_map[i][j] - '0';
+        auto neighbors1 = get_neighbors(i, j);
+
+        std::set<std::pair<int, int>> unknown1;
+        int marked1 = 0;
+        for (auto& n : neighbors1) {
+          if (client_map[n.first][n.second] == '?') {
+            unknown1.insert(n);
+          } else if (client_map[n.first][n.second] == '@') {
+            marked1++;
+          }
+        }
+
+        int remaining1 = num1 - marked1;
+
+        // Check other revealed cells nearby
+        for (int i2 = 0; i2 < rows; i2++) {
+          for (int j2 = 0; j2 < columns; j2++) {
+            if (i == i2 && j == j2) continue;
+            if (client_map[i2][j2] >= '0' && client_map[i2][j2] <= '8') {
+              int num2 = client_map[i2][j2] - '0';
+              auto neighbors2 = get_neighbors(i2, j2);
+
+              std::set<std::pair<int, int>> unknown2;
+              int marked2 = 0;
+              for (auto& n : neighbors2) {
+                if (client_map[n.first][n.second] == '?') {
+                  unknown2.insert(n);
+                } else if (client_map[n.first][n.second] == '@') {
+                  marked2++;
+                }
+              }
+
+              int remaining2 = num2 - marked2;
+
+              // If unknown1 is a subset of unknown2
+              bool is_subset = true;
+              for (auto& u : unknown1) {
+                if (unknown2.find(u) == unknown2.end()) {
+                  is_subset = false;
+                  break;
+                }
+              }
+
+              if (is_subset && unknown1.size() < unknown2.size()) {
+                // unknown2 - unknown1 has (remaining2 - remaining1) mines
+                std::set<std::pair<int, int>> diff;
+                for (auto& u : unknown2) {
+                  if (unknown1.find(u) == unknown1.end()) {
+                    diff.insert(u);
+                  }
+                }
+
+                int diff_mines = remaining2 - remaining1;
+
+                // If all cells in diff must be mines
+                if (diff_mines == (int)diff.size() && diff_mines > 0) {
+                  for (auto& cell : diff) {
+                    if (!is_mine_certain[cell.first][cell.second]) {
+                      is_mine_certain[cell.first][cell.second] = true;
+                      Execute(cell.first, cell.second, 1);
+                      return;
+                    }
+                  }
+                }
+
+                // If all cells in diff must be safe
+                if (diff_mines == 0 && diff.size() > 0) {
+                  for (auto& cell : diff) {
+                    if (!is_safe_certain[cell.first][cell.second]) {
+                      is_safe_certain[cell.first][cell.second] = true;
+                      Execute(cell.first, cell.second, 0);
+                      return;
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
